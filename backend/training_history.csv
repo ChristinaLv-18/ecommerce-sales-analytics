@@ -1,0 +1,4 @@
+train_date,model_name,dataset_name,train_size,features,features_count,mae,r2
+2026-06-13 21:04:36,LinearRegression,ecommerce_sales.csv,0.8,"Region, City, Category, Sub-Category, Payment Mode, Quantity, Unit Price, Discount",8,6788.87,0.637
+2026-06-13 21:04:48,LinearRegression,ecommerce_sales.csv,0.55,"Region, Category, Payment Mode, Quantity, Unit Price",5,6882.6,0.633
+2026-06-13 22:46:28,LinearRegression,ecommerce_sales.csv,0.8,"Region, City, Category, Sub-Category, Payment Mode, Quantity, Unit Price, Discount",8,6788.87,0.637

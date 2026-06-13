@@ -1,10 +1,9 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from threading import Thread
-import uuid
-import time
 
 import pandas as pd
+import os
+from datetime import datetime
 
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
@@ -13,104 +12,94 @@ from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score
 
-
+#Создание экземпляра FastAPI приложения
 app = FastAPI()
-jobs = {}
 
-
+#Создание экземпляра FastAPI приложения
 class TrainRequest(BaseModel):
     features: list[str]
     train_size: float
 
 
-def train_job(job_id, features, train_size):
-    try:
-        jobs[job_id]["status"] = "training"
-
-        time.sleep(5)
-
-        df = pd.read_csv("data/ecommerce_sales.csv")
-
-        X = df[features]
-        y = df["Profit"]
-
-        categorical_columns = [
-            "Region",
-            "City",
-            "Category",
-            "Sub-Category",
-            "Payment Mode"
-        ]
-
-        cat_features = [
-            col for col in features
-            if col in categorical_columns
-        ]
-
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ("cat", OneHotEncoder(handle_unknown="ignore"), cat_features)
-            ],
-            remainder="passthrough"
-        )
-
-        model = Pipeline([
-            ("preprocessor", preprocessor),
-            ("model", LinearRegression())
-        ])
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            train_size=train_size,
-            random_state=42
-        )
-
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        mae = mean_absolute_error(y_test, y_pred)
-        r2 = r2_score(y_test, y_pred)
-
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["result"] = {
-            "mae": round(mae, 2),
-            "r2": round(r2, 3),
-            "features_used": len(features),
-            "actual": y_test.tolist(),
-            "predicted": y_pred.tolist()
-        }
-
-    except Exception as e:
-        jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
-
-
 @app.post("/train")
-def start_training(request: TrainRequest):
-    job_id = str(uuid.uuid4())
+def train_model(request: TrainRequest):
 
-    jobs[job_id] = {
-        "status": "created",
-        "result": None,
-        "error": None
-    }
+    #Загрузка датасета
+    df = pd.read_csv("data/ecommerce_sales.csv")
 
-    thread = Thread(
-        target=train_job,
-        args=(job_id, request.features, request.train_size)
-    )
-    thread.start()
+    #Формирование матрицы признаков
+    X = df[request.features]
+    y = df["Profit"]
 
+    #Список категориальных признаков
+    categorical_columns = [
+        "Region",
+        "City",
+        "Category",
+        "Sub-Category",
+        "Payment Mode"]
+
+    #Определяем какие категориальные признаки выбрал пользователь
+    cat_features = [
+        col for col in request.features
+        if col in categorical_columns]
+
+    # Предобработка данных
+    # One-Hot Encoding для категориальных признаков
+    preprocessor = ColumnTransformer(transformers=[("cat", OneHotEncoder(handle_unknown="ignore"), cat_features)],remainder="passthrough")
+
+    model = Pipeline([("preprocessor", preprocessor),("model", LinearRegression())])
+
+    #Разделение данных на обучающую и тестовую выборки
+    X_train, X_test, y_train, y_test = train_test_split(X,y,train_size=request.train_size,random_state=42)
+
+    #Обучение модели
+    model.fit(X_train, y_train)
+
+    #Получение прогнозов
+    y_pred = model.predict(X_test)
+
+    #Расчет метрик качества модели
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    history_row = pd.DataFrame([{
+        "train_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "model_name": "LinearRegression",
+        "dataset_name": "ecommerce_sales.csv",
+        "train_size": request.train_size,
+        "features": ", ".join(request.features),
+        "features_count": len(request.features),
+        "mae": round(mae, 2),
+        "r2": round(r2, 3)}])
+
+    #Путь к файлу с историей запусков модели
+    history_path = "backend/training_history.csv"
+
+    #Проверка существования файла
+    file_exists = os.path.exists(history_path)
+    file_is_empty = file_exists and os.path.getsize(history_path) == 0
+
+    #Сохранение информации о запуске модели
+    history_row.to_csv(history_path,mode="a",header=not os.path.exists(history_path),index=False)
+
+    #Возврат результатов на frontend
     return {
-        "job_id": job_id,
-        "status": "started"
-    }
+        "mae": round(mae, 2),
+        "r2": round(r2, 3),
+        "features_used": len(request.features),
+        "actual": y_test.tolist(),
+        "predicted": y_pred.tolist()}
 
 
-@app.get("/train/status/{job_id}")
-def get_training_status(job_id: str):
-    if job_id not in jobs:
-        return {"status": "not_found"}
+@app.get("/history")
+def get_history():
 
-    return jobs[job_id]
+    history_path = "backend/training_history.csv"
+
+    if not os.path.exists(history_path):
+        return []
+
+    history = pd.read_csv(history_path)
+
+    return history.to_dict(orient="records")
