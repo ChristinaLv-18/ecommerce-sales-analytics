@@ -12,7 +12,7 @@ st.set_page_config(page_title="E-Commerce Dashboard", layout="wide")
 def load_data():
     df = pd.read_csv("data/ecommerce_sales.csv")
     df["Order Date"] = pd.to_datetime(df["Order Date"])
-#Создаём колонку "Month" (год-месяц) для агрегаций
+#Создаем колонку "Month" (год-месяц) для агрегаций
     df["Month"] = df["Order Date"].dt.to_period("M").astype(str)
     return df
 
